@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TambayNoodTV Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f4f6;
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; margin: 0; }
+    .container { background: white; padding: 20px; border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1); width: 300px; }
+    h2 { text-align: center; margin-bottom: 15px; }
+    form { display: none; flex-direction: column; }
+    form.active { display: flex; }
+    input { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+    button { margin-top: 10px; padding: 10px; border: none; background: #2563eb; color: white;
+      font-weight: bold; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .links { text-align: center; margin-top: 10px; }
+    .links a { margin: 0 5px; color: #2563eb; text-decoration: none; font-size: 14px; }
+    .links a:hover { text-decoration: underline; }
+    #dashboard { display:none; margin-top:20px; }
+  </style>
+</head>
+<body>
+  <div class="container" id="auth-box">
+    <h2 id="form-title">Login</h2>
+
+    <!-- Login Form -->
+    <form id="login-form" class="active">
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <button type="submit">Login</button>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form">
+      <input type="text" name="username" placeholder="Choose Username" required>
+      <input type="password" name="password" placeholder="Choose Password" required>
+      <input type="password" name="confirm" placeholder="Confirm Password" required>
+      <button type="submit">Register</button>
+    </form>
+
+    <!-- Forgot Password Form -->
+    <form id="forgot-form">
+      <input type="text" name="username" placeholder="Enter Username" required>
+      <button type="submit">Reset Password</button>
+    </form>
+
+    <div class="links">
+      <a href="#" onclick="showForm('login')">Login</a> | 
+      <a href="#" onclick="showForm('register')">Register</a> | 
+      <a href="#" onclick="showForm('forgot')">Forgot?</a>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <h2>Dashboard</h2>
+    <p id="dashboard-data">Loading...</p>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+<script>
+  // 🔹 Use your domain
+  const API = "https://tambaynoodtv.site/api";
+
+  function showForm(type) {
+    document.querySelectorAll("form").forEach(f => f.classList.remove("active"));
+    document.getElementById(type+"-form").classList.add("active");
+    document.getElementById("form-title").innerText = type.charAt(0).toUpperCase() + type.slice(1);
+  }
+
+  // On load
+  window.onload = () => {
+    const token = localStorage.getItem("token");
+    if (token) loadDashboard();
+    else { document.getElementById("auth-box").style.display = "block"; }
+  };
+
+  async function loadDashboard() {
+    const token = localStorage.getItem("token");
+    if (!token) return showForm("login");
+
+    const res = await fetch(`${API}/dashboard`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+
+    if (data.error) {
+      alert("Session expired. Please log in again.");
+      logout();
+    } else {
+      document.getElementById("auth-box").style.display = "none";
+      document.getElementById("dashboard").style.display = "block";
+      document.getElementById("dashboard-data").innerText = data.secretData;
+    }
+  }
+
+  // Login
+  document.getElementById("login-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { username, password } = e.target;
+    const res = await fetch(`${API}/login`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.value, password: password.value }),
+    });
+    const data = await res.json();
+    if (data.token) { localStorage.setItem("token", data.token); loadDashboard(); }
+    else alert(data.error || "Login failed");
+  });
+
+  // Register
+  document.getElementById("register-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { username, password, confirm } = e.target;
+    if (password.value !== confirm.value) return alert("Passwords do not match");
+    const res = await fetch(`${API}/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.value, password: password.value }),
+    });
+    alert(JSON.stringify(await res.json()));
+  });
+
+  // Forgot Password
+  document.getElementById("forgot-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { username } = e.target;
+    const res = await fetch(`${API}/forgot`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.value }),
+    });
+    alert(JSON.stringify(await res.json()));
+  });
+
+  // Logout
+  function logout() {
+    localStorage.removeItem("token");
+    document.getElementById("dashboard").style.display = "none";
+    document.getElementById("auth-box").style.display = "block";
+    showForm("login");
+  }
+</script>
+</body>
+</html>
