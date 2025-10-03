@@ -1,12 +1,11 @@
 {
-  "name": "iptv-secure",
+  "name": "iptv-project",
   "version": "1.0.0",
-  "description": "Secure IPTV login with token/session",
+  "description": "Secure IPTV server",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-  "author": "",
-  "license": "ISC"
+  "dependencies": {}
 }

@@ -2,10 +2,10 @@
   "name": "iptv-secure",
   "version": "1.0.0",
   "description": "Secure IPTV login with token/session",
-  "main": "server.js",
+  "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+  "start": "node src/server.js"
   },
   "author": "ManongGuardVpnV2",
   "license": "ISC"
