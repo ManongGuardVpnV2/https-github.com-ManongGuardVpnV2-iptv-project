@@ -1,19 +1,11 @@
 {
-  "name": "tambaynoodtv-login",
+  "name": "iptv-secure",
   "version": "1.0.0",
+  "description": "Secure IPTV login with token and session",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
-    "bcrypt": "^5.1.0",
-    "body-parser": "^1.20.2",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.1",
-    "sqlite3": "^5.1.6"
-  },
-  "engines": {
-    "node": ">=22.16.0"
-  }
+  "dependencies": {}
 }
