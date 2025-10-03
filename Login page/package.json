@@ -1,11 +1,15 @@
 {
   "name": "iptv-project",
   "version": "1.0.0",
-  "description": "Secure IPTV server",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {}
+  "dependencies": {
+    "http": "^0.0.1",
+    "fs": "^0.0.1",
+    "path": "^0.12.7",
+    "crypto": "^1.0.1"
+  }
 }
