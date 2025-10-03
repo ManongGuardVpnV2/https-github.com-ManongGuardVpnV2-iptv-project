@@ -1,13 +1,9 @@
 {
   "name": "iptv-project",
   "version": "1.0.0",
-  "description": "Secure IPTV server with token/session authentication",
   "main": "server.js",
-  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-  "author": "ManongGuardVpnV2",
-  "license": "MIT",
   "dependencies": {}
 }
