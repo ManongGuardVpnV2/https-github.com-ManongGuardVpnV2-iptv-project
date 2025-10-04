@@ -190,76 +190,59 @@ const server = http.createServer((req, res) => {
     }
   }
 
-  // --- Serve /iptv (inject countdown bar only) ---
-  if (url.pathname === "/iptv" && method === "GET") {
-    const sid = cookies.sessionId;
-    if (!validateSession(sid)) {
-      res.writeHead(302, { Location: "/" });
-      return res.end();
-    }
-    const htmlPath = path.join(PUBLIC_DIR, "myiptv.html");
-    if (!fs.existsSync(htmlPath)) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      return res.end("myiptv.html not found");
-    }
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    // inject small countdown bar & client script (no channels JSON embedded)
-    const barId = "sbar_" + crypto.randomBytes(3).toString("hex");
-    const inject = `
-<div id="${barId}" style="position:fixed;bottom:0;left:0;width:100%;height:40px;background:linear-gradient(90deg,#1E40AF,#3B82F6);color:white;display:flex;align-items:center;justify-content:center;font-family:monospace;font-weight:700;z-index:2147483647;">Loading session...</div>
-<script>
-(function(){
-  const bar=document.getElementById("${barId}");
-  function goLogin(){ location.href='/'; }
-  fetch('/check-session',{cache:'no-store',credentials:'include'}).then(r=>r.json()).then(j=>{
-    if(!j.success){ goLogin(); return; }
-    let expiry=j.expiry;
-    setInterval(()=>{ fetch('/refresh-session',{method:'POST',credentials:'include'}).catch(()=>{}); },5*60*1000);
-    setInterval(()=>{ const d=expiry-Date.now(); if(d<=0){ try{ alert('Session expired'); }catch(e){} goLogin(); return;} const h=Math.floor((d/3600000)%24), m=Math.floor((d/60000)%60), s=Math.floor((d/1000)%60); bar.innerText='Session expires in: '+h+'h '+m+'m '+s+'s'; },1000);
-  }).catch(goLogin);
-
-  // basic devtools deterrents
-  document.addEventListener('contextmenu',e=>e.preventDefault());
-  document.addEventListener('keydown',e=>{ if(e.key==='F12' || (e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key)) || (e.ctrlKey&&e.key==='U')) e.preventDefault(); });
-  if(window.top!==window.self){ try{ window.top.location = window.self.location; }catch(e){ goLogin(); } }
-})();
-</script>
-`;
-    if (html.includes("</body>")) html = html.replace("</body>", inject + "</body>");
-    else html += inject;
-
-    res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
-    return res.end(html);
+  // --- Serve /iptv (loads your real index.html and attaches session countdown) ---
+if (url.pathname === "/iptv" && method === "GET") {
+  const sid = cookies.sessionId;
+  if (!validateSession(sid)) {
+    res.writeHead(302, { Location: "/" });
+    return res.end();
   }
 
-  // --- Serve login page (root) ---
-  if ((url.pathname === "/" || url.pathname === "/login") && method === "GET") {
-    const loginHtml = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Login</title></head><body style="font-family:Arial,Helvetica,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6">
-<div style="width:360px;background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.08)">
-  <h2 style="margin:0 0 12px">Access IPTV</h2>
-  <button id="gen" style="width:100%;padding:10px;margin-bottom:8px;background:#059669;color:#fff;border:none;border-radius:6px">Generate Token</button>
-  <form id="f" method="POST" action="/validate-token" style="display:flex;flex-direction:column;gap:8px">
-    <input name="token" id="token" type="password" placeholder="Paste token" style="padding:10px;border-radius:6px;border:1px solid #ccc"/>
-    <button type="submit" style="padding:10px;border-radius:6px;border:none;background:#2563eb;color:#fff">Login</button>
-  </form>
-  <p id="msg" style="color:#666;margin-top:8px;height:18px"></p>
-</div>
-<script>
-document.getElementById('gen').addEventListener('click', async function(){
-  try{
-    const r = await fetch('/generate-token', { method:'GET', credentials:'include' });
-    const j = await r.json();
-    if (j.token) { document.getElementById('token').value = j.token; document.getElementById('msg').innerText='Token generated'; try{ await navigator.clipboard.writeText(j.token);}catch(e){} }
-    else document.getElementById('msg').innerText='Failed';
-  } catch(e){ document.getElementById('msg').innerText='Error'; }
-});
-</script>
-</body></html>`;
-    res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
-    return res.end(loginHtml);
+  const htmlPath = path.join(PUBLIC_DIR, "index.html");
+  if (!fs.existsSync(htmlPath)) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    return res.end("index.html not found");
   }
+
+  let html = fs.readFileSync(htmlPath, "utf8");
+
+  // ✅ Add secure session countdown bar (injected automatically)
+  const barId = "sessionBar_" + crypto.randomBytes(3).toString("hex");
+  const inject = `
+  <div id="${barId}" style="position:fixed;bottom:0;left:0;width:100%;height:40px;background:linear-gradient(90deg,#1E40AF,#3B82F6);color:white;display:flex;align-items:center;justify-content:center;font-family:monospace;font-weight:700;z-index:2147483647;">Loading session...</div>
+  <script>
+  (function(){
+    const bar=document.getElementById("${barId}");
+    function goLogin(){ location.href='/'; }
+    fetch('/check-session',{cache:'no-store',credentials:'include'}).then(r=>r.json()).then(j=>{
+      if(!j.success){ goLogin(); return; }
+      let expiry=j.expiry;
+      setInterval(()=>{ fetch('/refresh-session',{method:'POST',credentials:'include'}).catch(()=>{}); },5*60*1000);
+      setInterval(()=>{
+        const d=expiry-Date.now();
+        if(d<=0){ try{ alert('Session expired'); }catch(e){} goLogin(); return;}
+        const h=Math.floor((d/3600000)%24), m=Math.floor((d/60000)%60), s=Math.floor((d/1000)%60);
+        bar.innerText='Session expires in: '+h+'h '+m+'m '+s+'s';
+      },1000);
+    }).catch(goLogin);
+
+    // optional protection
+    document.addEventListener('contextmenu',e=>e.preventDefault());
+    document.addEventListener('keydown',e=>{
+      if(e.key==='F12' || (e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key)) || (e.ctrlKey&&e.key==='U'))
+        e.preventDefault();
+    });
+    if(window.top!==window.self){ try{ window.top.location = window.self.location; }catch(e){ goLogin(); } }
+  })();
+  </script>
+  `;
+
+  if (html.includes("</body>")) html = html.replace("</body>", inject + "</body>");
+  else html += inject;
+
+  res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
+  return res.end(html);
+}
 
   // --- Serve static files from public (only) ---
   if (method === "GET") {
