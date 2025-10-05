@@ -8,256 +8,147 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 3000;
-const TOKEN_DURATION = 60 * 60 * 1000;       // 1 hour
-const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-const CLEANUP_INTERVAL = 30 * 60 * 1000;      // cleanup interval
+const PORT = process.env.PORT || 10000;
 
-// in-memory stores (use Redis for production)
-let tokens = {};   // token -> expiry
-let sessions = {}; // sessionId -> expiry
-let usedTokens = new Set();
-
-// paths
+// Paths
 const PUBLIC_DIR = path.join(__dirname, "public");
 const CHANNELS_FILE = path.join(__dirname, "data", "channels.json");
 
-// --- helpers ---
+// Session in memory
+let sessions = {};
+const SESSION_DURATION = 24 * 60 * 60 * 1000;
+
+// Utilities
 const now = () => Date.now();
-
-function createToken() {
-  const token = crypto.randomBytes(8).toString("hex");
-  tokens[token] = now() + TOKEN_DURATION;
-  return { token, expiry: tokens[token] };
-}
-
-function validateToken(t) {
-  return Boolean(t && tokens[t] && now() <= tokens[t] && !usedTokens.has(t));
-}
-
-function useToken(t) { usedTokens.add(t); delete tokens[t]; }
 
 function createSession() {
   const id = crypto.randomBytes(16).toString("hex");
   sessions[id] = now() + SESSION_DURATION;
-  return { sessionId: id, expiry: sessions[id] };
+  return id;
 }
 
 function validateSession(id) {
-  return Boolean(id && sessions[id] && now() <= sessions[id]);
-}
-
-function refreshSession(id) {
-  if (!validateSession(id)) return false;
-  sessions[id] = now() + SESSION_DURATION;
-  return true;
+  return id && sessions[id] && sessions[id] > now();
 }
 
 function parseCookies(req) {
-  const raw = req.headers.cookie;
-  if (!raw) return {};
-  return raw.split(";").map(s => s.trim()).reduce((acc, pair) => {
-    const idx = pair.indexOf("=");
-    if (idx === -1) return acc;
-    const k = pair.slice(0, idx);
-    const v = pair.slice(idx + 1);
-    acc[k] = decodeURIComponent(v);
+  const cookie = req.headers.cookie;
+  if (!cookie) return {};
+  return cookie.split(";").map(c => c.trim()).reduce((acc, pair) => {
+    const [k, v] = pair.split("=");
+    acc[k] = decodeURIComponent(v || "");
     return acc;
   }, {});
 }
 
 function sendJSON(res, code, obj) {
-  res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
 }
 
-function serveStaticFile(res, filePath) {
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+function serveFile(res, filePath, type) {
+  if (!fs.existsSync(filePath)) {
     res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
+    return res.end("Not found");
   }
-  const ext = path.extname(filePath).toLowerCase();
-  const types = { ".html":"text/html", ".js":"application/javascript", ".css":"text/css", ".json":"application/json", ".png":"image/png", ".jpg":"image/jpeg", ".svg":"image/svg+xml" };
-  const mime = types[ext] || "application/octet-stream";
   const data = fs.readFileSync(filePath);
-  res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-store" });
+  res.writeHead(200, { "Content-Type": type });
   res.end(data);
 }
 
-// cleanup periodically
-setInterval(() => {
-  const t = now();
-  for (const k in tokens) if (tokens[k] < t) delete tokens[k];
-  for (const k in sessions) if (sessions[k] < t) delete sessions[k];
-  usedTokens = new Set([...usedTokens].filter(x => x in tokens));
-}, CLEANUP_INTERVAL);
-
-// --- HTTP server ---
+// --- HTTP Server ---
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const method = req.method;
   const cookies = parseCookies(req);
+  const sessionId = cookies.sessionId;
 
-  // --- API: generate token ---
-  if (url.pathname === "/generate-token" && method === "GET") {
-    const t = createToken();
-    return sendJSON(res, 200, { token: t.token, expiry: t.expiry });
+  // Login page
+  if (url.pathname === "/" && req.method === "GET") {
+    const loginHtml = `
+      <!doctype html>
+      <html><head><meta charset="utf-8"><title>Login</title></head>
+      <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6">
+        <div style="padding:20px;background:#fff;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.1);width:360px;text-align:center">
+          <h2>Access IPTV</h2>
+          <form method="POST" action="/login">
+            <input name="password" type="password" placeholder="Enter access code" style="padding:10px;width:100%;margin-bottom:10px;border:1px solid #ccc;border-radius:6px">
+            <button type="submit" style="padding:10px;width:100%;border:none;border-radius:6px;background:#2563eb;color:white">Login</button>
+          </form>
+        </div>
+      </body></html>`;
+    res.writeHead(200, { "Content-Type": "text/html" });
+    return res.end(loginHtml);
   }
 
-  // --- API: validate token (accept JSON or form POST) ---
-  if (url.pathname === "/validate-token" && method === "POST") {
+  // Handle login
+  if (url.pathname === "/login" && req.method === "POST") {
     let body = "";
-    req.on("data", d => body += d);
+    req.on("data", chunk => body += chunk);
     req.on("end", () => {
-      let token = null;
-      const ctype = (req.headers["content-type"] || "").split(";")[0];
-      try {
-        if (ctype === "application/json") {
-          const j = JSON.parse(body || "{}");
-          token = j.token;
-        } else if (ctype === "application/x-www-form-urlencoded") {
-          const p = new URLSearchParams(body || "");
-          token = p.get("token");
-        } else {
-          try { token = JSON.parse(body || "{}").token; } catch(e) { token = null; }
-        }
-      } catch (e) {
-        token = null;
-      }
-
-      if (!validateToken(token)) {
-        // if coming from form post, redirect back
-        if (ctype === "application/x-www-form-urlencoded") {
-          res.writeHead(302, { Location: "/?error=invalid" });
-          return res.end();
-        }
-        return sendJSON(res, 400, { success: false, error: "Invalid or expired token" });
-      }
-
-      useToken(token);
-      const { sessionId, expiry } = createSession();
-
-      // cookie flags: Secure only in production or if request had X-Forwarded-Proto https
-      const isSecure = (process.env.NODE_ENV === "production") || (req.headers["x-forwarded-proto"] === "https");
-      const secureFlag = isSecure ? "Secure; " : "";
-
-      const cookie = `sessionId=${encodeURIComponent(sessionId)}; HttpOnly; ${secureFlag}SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_DURATION/1000)}`;
-      res.setHeader("Set-Cookie", cookie);
-
-      // if form POST, redirect to /iptv so browser navigates and accepts cookie
-      if (ctype === "application/x-www-form-urlencoded") {
+      const params = new URLSearchParams(body);
+      const password = params.get("password");
+      // simple hardcoded key, you can make it env var
+      if (password === "iptv2025") {
+        const sid = createSession();
+        res.setHeader("Set-Cookie", `sessionId=${sid}; HttpOnly; Path=/; Max-Age=${SESSION_DURATION / 1000}`);
         res.writeHead(302, { Location: "/iptv" });
         return res.end();
+      } else {
+        res.writeHead(302, { Location: "/?error=1" });
+        return res.end();
       }
-      return sendJSON(res, 200, { success: true, expiry });
     });
     return;
   }
 
-  // --- API: check-session ---
-  if (url.pathname === "/check-session" && method === "GET") {
-    const sid = cookies.sessionId;
-    if (!validateSession(sid)) return sendJSON(res, 401, { success: false });
-    return sendJSON(res, 200, { success: true, expiry: sessions[sid] });
+  // IPTV page
+  if (url.pathname === "/iptv" && req.method === "GET") {
+    if (!validateSession(sessionId)) {
+      res.writeHead(302, { Location: "/" });
+      return res.end();
+    }
+    const filePath = path.join(PUBLIC_DIR, "index.html");
+    return serveFile(res, filePath, "text/html");
   }
 
-  // --- API: refresh-session ---
-  if (url.pathname === "/refresh-session" && method === "POST") {
-    const sid = cookies.sessionId;
-    if (!validateSession(sid)) return sendJSON(res, 400, { success: false });
-    refreshSession(sid);
-    return sendJSON(res, 200, { success: true });
-  }
-
-  // --- API: protected channels (reads from data/channels.json only) ---
-  if (url.pathname === "/channels" && method === "GET") {
-    const sid = cookies.sessionId;
-    if (!validateSession(sid)) return sendJSON(res, 401, { success: false, error: "Unauthorized" });
-
-    if (!fs.existsSync(CHANNELS_FILE)) return sendJSON(res, 200, { success: true, channels: [] });
+  // Channels API
+  if (url.pathname === "/channels" && req.method === "GET") {
+    if (!validateSession(sessionId)) {
+      return sendJSON(res, 401, { success: false, error: "Unauthorized" });
+    }
     try {
-      const text = fs.readFileSync(CHANNELS_FILE, "utf8");
-      const parsed = JSON.parse(text);
-      // IMPORTANT: you may want to remove sensitive fields before sending (e.g., clearKey)
-      const safe = parsed.map(ch => {
-        const { name, logo, manifestUri, category } = ch;
-        return { name, logo, manifestUri, category };
-      });
+      const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, "utf8"));
+      const safe = data.map(ch => ({
+        name: ch.name,
+        logo: ch.logo,
+        manifestUri: ch.manifestUri,
+        category: ch.category
+      }));
       return sendJSON(res, 200, { success: true, channels: safe });
-    } catch (e) {
-      return sendJSON(res, 500, { success: false, error: "Channels file error" });
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, error: "File error" });
     }
   }
 
-  // --- Serve /iptv (loads your real index.html and attaches session countdown) ---
-if (url.pathname === "/iptv" && method === "GET") {
-  const sid = cookies.sessionId;
-  if (!validateSession(sid)) {
-    res.writeHead(302, { Location: "/" });
-    return res.end();
-  }
-
-  const htmlPath = path.join(PUBLIC_DIR, "index.html");
-  if (!fs.existsSync(htmlPath)) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    return res.end("index.html not found");
-  }
-
-  let html = fs.readFileSync(htmlPath, "utf8");
-
-  // ✅ Add secure session countdown bar (injected automatically)
-  const barId = "sessionBar_" + crypto.randomBytes(3).toString("hex");
-  const inject = `
-  <div id="${barId}" style="position:fixed;bottom:0;left:0;width:100%;height:40px;background:linear-gradient(90deg,#1E40AF,#3B82F6);color:white;display:flex;align-items:center;justify-content:center;font-family:monospace;font-weight:700;z-index:2147483647;">Loading session...</div>
-  <script>
-  (function(){
-    const bar=document.getElementById("${barId}");
-    function goLogin(){ location.href='/'; }
-    fetch('/check-session',{cache:'no-store',credentials:'include'}).then(r=>r.json()).then(j=>{
-      if(!j.success){ goLogin(); return; }
-      let expiry=j.expiry;
-      setInterval(()=>{ fetch('/refresh-session',{method:'POST',credentials:'include'}).catch(()=>{}); },5*60*1000);
-      setInterval(()=>{
-        const d=expiry-Date.now();
-        if(d<=0){ try{ alert('Session expired'); }catch(e){} goLogin(); return;}
-        const h=Math.floor((d/3600000)%24), m=Math.floor((d/60000)%60), s=Math.floor((d/1000)%60);
-        bar.innerText='Session expires in: '+h+'h '+m+'m '+s+'s';
-      },1000);
-    }).catch(goLogin);
-
-    // optional protection
-    document.addEventListener('contextmenu',e=>e.preventDefault());
-    document.addEventListener('keydown',e=>{
-      if(e.key==='F12' || (e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key)) || (e.ctrlKey&&e.key==='U'))
-        e.preventDefault();
-    });
-    if(window.top!==window.self){ try{ window.top.location = window.self.location; }catch(e){ goLogin(); } }
-  })();
-  </script>
-  `;
-
-  if (html.includes("</body>")) html = html.replace("</body>", inject + "</body>");
-  else html += inject;
-
-  res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
-  return res.end(html);
-}
-
-  // --- Serve static files from public (only) ---
-  if (method === "GET") {
-    // sanitize path; disallow ../
-    const rel = url.pathname.replace(/^\/+/, "");
-    if (!rel) { res.writeHead(404); return res.end("Not Found"); }
-    const candidate = path.join(PUBLIC_DIR, rel);
-    if (candidate.startsWith(PUBLIC_DIR) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return serveStaticFile(res, candidate);
+  // Serve static assets
+  if (req.method === "GET") {
+    const filePath = path.join(PUBLIC_DIR, url.pathname);
+    if (filePath.startsWith(PUBLIC_DIR) && fs.existsSync(filePath)) {
+      const ext = path.extname(filePath);
+      const types = {
+        ".html": "text/html",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".svg": "image/svg+xml"
+      };
+      return serveFile(res, filePath, types[ext] || "application/octet-stream");
     }
   }
 
-  // default 404
   res.writeHead(404, { "Content-Type": "text/plain" });
-  res.end("Not Found");
+  res.end("Not found");
 });
 
 server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
