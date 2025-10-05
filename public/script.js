@@ -1671,33 +1671,23 @@ let channels = [];
 
 async function loadChannels() {
   try {
-    const res = await fetch("/channels", { credentials: "include" });
-    const data = await res.json();
+    const res = await fetch("/channels");
+    channels = await res.json();
 
-    if (!data.success) {
-      console.error("❌ Failed to load channels: Unauthorized or error");
-      return;
-    }
+    renderCategoryFilters();
+    renderChannelRows();
 
-    channels = data.channels;
-
-    // --- render your UI functions ---
-    renderCategoryFilters(); // your function
-    renderChannelRows();     // your function
-
-    // Auto-play last saved channel or first
     const savedIndex = parseInt(localStorage.getItem("lastChannelIndex"));
     const initialIndex = (!isNaN(savedIndex) && channels[savedIndex]) ? savedIndex : 0;
     const card = document.querySelector(`.channel[data-index="${initialIndex}"]`);
-    if (card) flipChannel(card, initialIndex); // your function
-
+    flipChannel(card, initialIndex);
   } catch (err) {
-    console.error("❌ Failed to load channels:", err);
+    console.error("Failed to load channels:", err);
   }
 }
 
-// Call on page load
-window.addEventListener("DOMContentLoaded", loadChannels);
+document.addEventListener("DOMContentLoaded", loadChannels);
+
 
 
 
