@@ -1,4 +1,3 @@
-// server.js (ESM)
 import http from "http";
 import fs from "fs";
 import path from "path";
@@ -7,148 +6,114 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const PORT = process.env.PORT || 10000;
 
 // Paths
-const PUBLIC_DIR = path.join(__dirname, "public");
-const CHANNELS_FILE = path.join(__dirname, "data", "channels.json");
+const PUBLIC = path.join(__dirname, "public");
+const CHANNELS = path.join(__dirname, "data", "channels.json");
 
-// Session in memory
 let sessions = {};
-const SESSION_DURATION = 24 * 60 * 60 * 1000;
+const DURATION = 24 * 60 * 60 * 1000; // 1 day
 
-// Utilities
-const now = () => Date.now();
-
-function createSession() {
+function newSession() {
   const id = crypto.randomBytes(16).toString("hex");
-  sessions[id] = now() + SESSION_DURATION;
+  sessions[id] = Date.now() + DURATION;
   return id;
 }
-
-function validateSession(id) {
-  return id && sessions[id] && sessions[id] > now();
+function validSession(id) {
+  return id && sessions[id] && sessions[id] > Date.now();
+}
+function cookies(req) {
+  const c = req.headers.cookie || "";
+  return Object.fromEntries(
+    c.split(";").filter(Boolean).map(x => {
+      const [k, v] = x.trim().split("=");
+      return [k, decodeURIComponent(v)];
+    })
+  );
+}
+function send(res, code, type, body) {
+  res.writeHead(code, { "Content-Type": type });
+  res.end(body);
 }
 
-function parseCookies(req) {
-  const cookie = req.headers.cookie;
-  if (!cookie) return {};
-  return cookie.split(";").map(c => c.trim()).reduce((acc, pair) => {
-    const [k, v] = pair.split("=");
-    acc[k] = decodeURIComponent(v || "");
-    return acc;
-  }, {});
-}
-
-function sendJSON(res, code, obj) {
-  res.writeHead(code, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(obj));
-}
-
-function serveFile(res, filePath, type) {
-  if (!fs.existsSync(filePath)) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    return res.end("Not found");
-  }
-  const data = fs.readFileSync(filePath);
-  res.writeHead(200, { "Content-Type": type });
-  res.end(data);
-}
-
-// --- HTTP Server ---
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const cookies = parseCookies(req);
-  const sessionId = cookies.sessionId;
+  const cookie = cookies(req);
 
-  // Login page
+  // --- LOGIN PAGE ---
   if (url.pathname === "/" && req.method === "GET") {
-    const loginHtml = `
-      <!doctype html>
-      <html><head><meta charset="utf-8"><title>Login</title></head>
-      <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6">
-        <div style="padding:20px;background:#fff;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.1);width:360px;text-align:center">
-          <h2>Access IPTV</h2>
-          <form method="POST" action="/login">
-            <input name="password" type="password" placeholder="Enter access code" style="padding:10px;width:100%;margin-bottom:10px;border:1px solid #ccc;border-radius:6px">
-            <button type="submit" style="padding:10px;width:100%;border:none;border-radius:6px;background:#2563eb;color:white">Login</button>
-          </form>
-        </div>
-      </body></html>`;
-    res.writeHead(200, { "Content-Type": "text/html" });
-    return res.end(loginHtml);
+    const html = `
+    <html><head><meta charset="utf-8"><title>Login</title></head>
+    <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6">
+      <form method="POST" action="/login" style="background:#fff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1)">
+        <h2>IPTV Access</h2>
+        <input name="password" type="password" placeholder="Access Code" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ccc;border-radius:6px">
+        <button type="submit" style="width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:6px">Login</button>
+      </form>
+    </body></html>`;
+    return send(res, 200, "text/html", html);
   }
 
-  // Handle login
+  // --- LOGIN ACTION ---
   if (url.pathname === "/login" && req.method === "POST") {
     let body = "";
-    req.on("data", chunk => body += chunk);
+    req.on("data", c => (body += c));
     req.on("end", () => {
-      const params = new URLSearchParams(body);
-      const password = params.get("password");
-      // simple hardcoded key, you can make it env var
+      const password = new URLSearchParams(body).get("password");
       if (password === "iptv2025") {
-        const sid = createSession();
-        res.setHeader("Set-Cookie", `sessionId=${sid}; HttpOnly; Path=/; Max-Age=${SESSION_DURATION / 1000}`);
+        const sid = newSession();
+        res.setHeader("Set-Cookie", `session=${sid}; HttpOnly; Path=/; Max-Age=${DURATION / 1000}`);
         res.writeHead(302, { Location: "/iptv" });
-        return res.end();
+        res.end();
       } else {
         res.writeHead(302, { Location: "/?error=1" });
-        return res.end();
+        res.end();
       }
     });
     return;
   }
 
-  // IPTV page
-  if (url.pathname === "/iptv" && req.method === "GET") {
-    if (!validateSession(sessionId)) {
+  // --- IPTV PAGE ---
+  if (url.pathname === "/iptv") {
+    if (!validSession(cookie.session)) {
       res.writeHead(302, { Location: "/" });
       return res.end();
     }
-    const filePath = path.join(PUBLIC_DIR, "index.html");
-    return serveFile(res, filePath, "text/html");
+    const file = path.join(PUBLIC, "index.html");
+    return send(res, 200, "text/html", fs.readFileSync(file));
   }
 
-  // Channels API
-  if (url.pathname === "/channels" && req.method === "GET") {
-    if (!validateSession(sessionId)) {
-      return sendJSON(res, 401, { success: false, error: "Unauthorized" });
+  // --- CHANNELS API ---
+  if (url.pathname === "/channels") {
+    if (!validSession(cookie.session)) {
+      return send(res, 401, "application/json", JSON.stringify({ success: false, error: "Unauthorized" }));
     }
-    try {
-      const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, "utf8"));
-      const safe = data.map(ch => ({
-        name: ch.name,
-        logo: ch.logo,
-        manifestUri: ch.manifestUri,
-        category: ch.category
-      }));
-      return sendJSON(res, 200, { success: true, channels: safe });
-    } catch (err) {
-      return sendJSON(res, 500, { success: false, error: "File error" });
-    }
+    const json = JSON.parse(fs.readFileSync(CHANNELS, "utf8"));
+    const safe = json.map(({ name, logo, manifestUri, category }) => ({
+      name,
+      logo,
+      manifestUri,
+      category
+    }));
+    return send(res, 200, "application/json", JSON.stringify({ success: true, channels: safe }));
   }
 
-  // Serve static assets
-  if (req.method === "GET") {
-    const filePath = path.join(PUBLIC_DIR, url.pathname);
-    if (filePath.startsWith(PUBLIC_DIR) && fs.existsSync(filePath)) {
-      const ext = path.extname(filePath);
-      const types = {
-        ".html": "text/html",
-        ".css": "text/css",
-        ".js": "application/javascript",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".svg": "image/svg+xml"
-      };
-      return serveFile(res, filePath, types[ext] || "application/octet-stream");
-    }
+  // --- STATIC FILES ---
+  const filePath = path.join(PUBLIC, url.pathname);
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath);
+    const types = {
+      ".html": "text/html",
+      ".css": "text/css",
+      ".js": "application/javascript",
+      ".png": "image/png",
+      ".jpg": "image/jpeg"
+    };
+    return send(res, 200, types[ext] || "application/octet-stream", fs.readFileSync(filePath));
   }
 
-  res.writeHead(404, { "Content-Type": "text/plain" });
-  res.end("Not found");
+  send(res, 404, "text/plain", "Not found");
 });
 
-server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`✅ IPTV Server running on port ${PORT}`));
