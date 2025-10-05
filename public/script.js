@@ -1672,6 +1672,7 @@ let channels = [];
 async function loadChannels() {
   try {
     const res = await fetch("/channels");
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     channels = await res.json();
 
     renderCategoryFilters();
@@ -1680,9 +1681,12 @@ async function loadChannels() {
     const savedIndex = parseInt(localStorage.getItem("lastChannelIndex"));
     const initialIndex = (!isNaN(savedIndex) && channels[savedIndex]) ? savedIndex : 0;
     const card = document.querySelector(`.channel[data-index="${initialIndex}"]`);
-    flipChannel(card, initialIndex);
+    if (card) flipChannel(card, initialIndex);
+
   } catch (err) {
-    console.error("Failed to load channels:", err);
+    console.error("❌ Failed to load channels:", err);
+    const container = document.querySelector("#channels-container");
+    if (container) container.innerHTML = "<p style='color:red;'>Failed to load channels.</p>";
   }
 }
 
