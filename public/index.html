@@ -1,251 +1,28 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#000000" />
-<meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <title>AGNSA Cable TV</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.10/dist/hls.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.10/shaka-player.compiled.js"></script>
-  <script src="adaptive-tier-player.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="style.css" />
-
-
-
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPTV Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f4f6; margin:0; padding:0; }
+    #categoryFilters { display:flex; gap:8px; padding:10px; flex-wrap:wrap; background:#1E40AF; }
+    #categoryFilters button { padding:6px 12px; border:none; border-radius:4px; background:#3B82F6; color:white; cursor:pointer; }
+    #channelContainer { display:flex; flex-wrap:wrap; gap:10px; padding:10px; justify-content:flex-start; }
+    .channel { width:120px; cursor:pointer; text-align:center; border:2px solid transparent; border-radius:6px; padding:4px; background:#fff; }
+    .channel img { width:100%; border-radius:4px; }
+    .channel.active { border-color:#2563eb; box-shadow:0 2px 6px rgba(0,0,0,0.15); }
+    #player { width:100%; max-width:800px; margin:10px auto; display:block; border:2px solid #1E40AF; border-radius:6px; }
+  </style>
 </head>
+<body>
 
-<body class="text-white font-sans min-h-screen overflow-x-hidden bg-black bg-opacity-50 pb-40">
+  <div id="categoryFilters"></div>
+  <div id="channelContainer"></div>
+  <video id="player" controls autoplay></video>
 
-  <header class="text-center py-4 text-3xl font-bold neon-red">📺Tambay Nood Lang📺</header>
-
- <div class="text-center mb-3">
-  <div id="datetime" class="neon-gradient-clock orbitron-font"></div>
-</div>
-
-
-
-  <audio id="fullscreenSound" src="assest/exitfullscreen.mp3" preload="auto"></audio>
-
-
-  <div style="margin-top: 10px; text-align: center;">
-  <label for="filterSelect" style="color: #ffdd01; font-weight: bold; font-size: 14px;">🎬✨Video Filter:🎬✨ </label>
-  <select id="filterSelect" style="padding: 6px 12px; font-size: 14px; border-radius: 4px; background: #222; color: #20f885; border: none; cursor: pointer;">
-    <option value="none">None</option>
-    <option value="grayscale(100%)">Grayscale</option>
-    <option value="sepia(100%)">Sepia</option>
-    <option value="brightness(150%)">Brightness</option>
-    <option value="contrast(150%)">Contrast</option>
-    <option value="invert(100%)">Invert</option>
-    <option value="blur(3px)">Blur</option>
-    <option value="saturate(200%)">Saturate</option>
-    <option value="hue-rotate(90deg)">Hue Rotate</option>
-  </select>
-</div>
-
-  <div class="relative max-w-4xl mx-auto px-4 mt-2">
-    <!-- Video Container -->
-<div id="videoContainer" class="relative w-full max-w-screen-lg mx-auto bg-black">
-      <video id="video" class="w-full h-full object-contain" autoplay playsinline webkit-playsinline preload="auto"></video>
-      
-
-      
-  
-  <div id="topLeftOverlay" class="absolute top-2 left-2 flex items-center gap-2 z-10">
-  <!-- Live Indicator -->
-  <div id="liveIndicator" class="flex items-center gap-1 text-red-600 text-xs font-bold animate-pulse whitespace-nowrap">
-    <span class="w-2 h-2 bg-green-600 rounded-full animate-ping"></span> LIVE
-  </div>
-   <!-- Channel Name (hidden) -->
-  <div id="channelName" class="text-sm font-bold text-green-500 moving-text" style="display: none;"></div>
-</div>
-  
-
-    
-
-
-
-
- <!-- Video Controls -->
-     <div id="videoControls" class="absolute bottom-1 left-0 right-0 bg-transparent px-4 py-.9 flex flex-col sm:flex-row flex-wrap items-center justify-between z-10 transition-opacity duration-300 opacity-100 pointer-events-auto">
-
-
-
-
-        
-      <!-- Simulated Brightness Overlay -->
-<div id="brightnessOverlay"
-     class="fixed inset-0 bg-black opacity-0 pointer-events-none z-40 transition-opacity duration-200">
-</div>
-
-<!-- Gesture Touch Area (enabled only in fullscreen) -->
-<div id="gestureOverlay"></div>
-
-
-          
-      
-
-    
-
-
-
-        <!-- Left: Play, Live, Seekbar -->
-        <div class="flex items-center gap-2 w-full sm:w-auto flex-grow">
-          <button id="playPauseBtn" class="black text-xl px-4 py-3 rounded-full"></button>
-         <input type="range" id="seekBar" min="0" max="100" step="1" class="h-2 appearance-none rounded-lg focus:outline-none touch-manipulation" style="width: 1%; background-color: rgba(255, 0, 0, 0);" />
-
-            
-        </div>
-      
-          
-        <!-- Right: Volume, Fullscreen, Settings -->
-        <div class="flex items-center gap-2 w-full sm:w-auto justify-end sm:justify-start">
-
-        <div class="relative flex items-center gap 1">
-  <button id="volumeIcon" class="neon-yellow" title="Toggle Mute">
-    <svg id="volumeSvg" xmlns="http://www.w3.org/2000/svg" fill="none"
-      viewBox="0 0 24 24" stroke="currentColor" class="w-6 h-6">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-        d="M11 5L6 9H3v6h3l5 4V5z" />
-      <path id="volumeSoundWave" stroke-linecap="round" stroke-linejoin="round"
-        stroke-width="2" d="M15 9a3 3 0 010 6" />
-    </svg>
-  </button>
-
-<input type="range" id="volumeSlider" min="0" max="1" step="0.01"
-    class="volume-slider w-12 sm:w-14 accent-green-400 touch-manipulation" />
-</div>
-
-<div id="debugInfo" style="font-size:12px; color:#888; margin-top:10px;"></div>
-
-
-
-  <div id="gearWrapper" class="relative inline-block">
-  <button id="settingsBtn" 
-          class="text-cyan-400 text-2xl hover:scale-110 transition-transform duration-300 glow-cyan" 
-          aria-haspopup="true" aria-expanded="false" aria-label="Open settings">
-    ⚙️
-  </button>
-
-  <div id="settingsDropdown" 
-       class="hidden absolute bottom-10 right-0 w-72 max-h-[70vh] overflow-y-auto bg-black bg-opacity-90 rounded-lg shadow-lg border border-cyan-700 backdrop-blur p-3 space-y-4 text-white text-sm z-50" 
-       role="menu" aria-hidden="true">
-    <button id="pipToggle" class="block w-full text-left hover:text-cyan-300" role="menuitem" tabindex="-1">🗔 Picture-in-Picture</button>
-    <button id="theaterBtn" class="block w-full text-left hover:text-cyan-300" role="menuitem" tabindex="-1">🎭 Theater Mode</button>
-
-   
-    
-
-    <!-- Audio Tracks -->
-<div id="audioOptions" class="hidden">
-  <label for="audioSelect" class="block text-cyan-400 font-bold mb-1 mt-3">🎧 Audio Track</label>
-  <select id="audioSelect" class="w-full bg-black text-white border border-cyan-700 rounded p-1 text-sm"></select>
-</div>
-
-
-    <!-- Subtitles -->
-    <div id="subtitleOptions" class="hidden">
-      <label for="subtitleSelect" class="block text-cyan-400 font-bold mb-1 mt-3">📝 Subtitles</label>
-      <select id="subtitleSelect" class="w-full bg-black text-white border border-cyan-700 rounded p-1 text-sm">
-        <option value="off">Off</option>
-      </select>
-    </div>
-  </div>
-</div>
-
-<!-- Quality Modal -->
-<div id="qualityModal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-  <div class="bg-[#111] text-white rounded-xl p-6 w-full max-w-sm max-h-[80vh] overflow-y-auto shadow-lg border border-cyan-500">
-    <h2 class="text-lg font-bold text-cyan-300 mb-1">📶 Select Quality</h2>
-<ul id="qualityList" class="space-y-3">
-  
-</ul>
-    <button id="closeQualityModal" class="mt-6 w-full py-2 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-semibold">Close</button>
-  </div>
-</div>
-
-
-
-
-
-          <!-- Fullscreen -->
-<button id="fullscreenBtn" class="bg-transparent hover:text-cyan-200 text-xl transition-all duration-500 ease-in-out transform hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-cyan-400">
-  <svg id="fullscreenGear" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24 "
-    stroke="currentColor" class="w-8 h-8 mx-auto transition-all duration-300 ease-in-out transform hover:scale-110 hover:rotate-90">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-      d="M9 5h10a2 2 0 012 2v10a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2z bg-black/60" />
-  </svg>
-</button>
-
-
-        </div>
-      </div>
-    </div>
-  </div>
- 
-
- 
-
-
-
-
-
-
-
-
-
-  <!-- Category Buttons -->
-  <div id="categoryFilterBar" class="flex flex-wrap justify-center gap-3 px-4 mt-6 mb-2"></div>
-
-
-
-
-<div id="searchBarContainer" class="search-bar-container">
-  <button id="searchToggle" class="search-icon-btn" aria-label="Open Search">
-    🔍
-  </button>
-  <input id="searchInput" class="search-input" type="text" placeholder="Search channels..." />
-</div>
-
-
-
-  <!-- Channels Grid -->
-  <div id="channelCategories" class="mt-6 space-y-6 px-4"></div>
-
-  <!-- Dev Tools Protection -->
-  <div id="devToolsWarning">⚠️Nakaw Pa More⚠️</div>
-
-  <div id="mainContent">
-    <marquee><p>📺Sit back Relax and Enjoy Watching📺</p></marquee>
-  </div>
-
-  <div id="blockedContent" class="hidden">
-    <h2>Content Blocked</h2>
-    <p>⚠️Benta Pa More⚠️</p>
-  </div>
-
-
-<!--Radio Codes-->
-<div id="radioBtn">
-  <span id="playIcon">▶️</span>
-  <span id="radioLabel">Live Radio </span>
-</div>
-<div id="tooltip"></div>
-
-<div id="radioPanel">
-  <header>
-    <h3>📻 PH Radio</h3>
-    <button id="closeBtn">✖</button>
-  </header>
-  <ul id="stationList"></ul>
-  <audio id="audio" controls preload="none"></audio>
-</div>
-
-<script src="script.js"></script>
+  <script src="script.js"></script>
 
 </body>
 </html>
-

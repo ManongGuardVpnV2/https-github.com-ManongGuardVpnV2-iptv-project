@@ -1,11 +1,12 @@
 {
   "name": "iptv-project",
   "version": "1.0.0",
-  "description": "Personal IPTV Web Server",
+  "description": "Secure IPTV project",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
+  "dependencies": {},
   "license": "MIT"
 }
