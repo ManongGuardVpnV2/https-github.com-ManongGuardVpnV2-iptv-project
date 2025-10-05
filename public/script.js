@@ -1,5 +1,5 @@
 
-  <script>
+
     const player = new shaka.Player(document.getElementById('video'));
     const video = document.getElementById('video');
     const playPauseBtn = document.getElementById('playPauseBtn');
@@ -2926,9 +2926,6 @@ async function onChannelChange(newIndex) {
 
 
 
-
-  </script>
- <script>
 const settings = {
   lang: 'en-US',
   volume: 9,
@@ -2997,9 +2994,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 
-</script>
 
-<script>
+
+
   function applyVideoFilter(value) {
     const video = document.getElementById('myVideo');
     if (value === 'none') {
@@ -3010,11 +3007,11 @@ document.addEventListener("keydown", (e) => {
   }
   // Initialize with no filter
   applyVideoFilter('none');
-</script>
 
 
 
-<script>
+
+
 const stations = [
   {freq:"87.5", name:"Republika FM1", logo:"https://static.mytuner.mobi/media/tvos_radios/fuyfjcn4gqee.png", url:"https://stream.zeno.fm/qnt98p5m108uv"},
   {freq:"89.1", name:"AWR Manila", logo:"https://static.mytuner.mobi/media/tvos_radios/983/awr-manila-891.ab9269f0.png", url:"http://192.53.113.120:8000/stream?type=.mp3"},
@@ -3134,8 +3131,3 @@ document.addEventListener("touchmove", e=>{ if(!isDown)return; moveDrag(e.touche
 document.addEventListener("touchend", endDrag);
 
 window.addEventListener("resize", ()=>{ if(radioPanel.classList.contains("open")) updatePanelPosition(); });
-</script>
-
-
-</body>
-</html>

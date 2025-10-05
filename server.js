@@ -1,3 +1,4 @@
+// server.js (ESM)
 import http from "http";
 import fs from "fs";
 import path from "path";
@@ -6,114 +7,123 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 const PORT = process.env.PORT || 10000;
+const TOKEN_DURATION = 60 * 60 * 1000;
+const SESSION_DURATION = 24 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL = 30 * 60 * 1000;
 
-// Paths
-const PUBLIC = path.join(__dirname, "public");
-const CHANNELS = path.join(__dirname, "data", "channels.json");
-
+let tokens = {};
 let sessions = {};
-const DURATION = 24 * 60 * 60 * 1000; // 1 day
+let usedTokens = new Set();
 
-function newSession() {
+const PUBLIC_DIR = path.join(__dirname, "public");
+const CHANNELS_FILE = path.join(__dirname, "data", "channels.json");
+
+const now = () => Date.now();
+
+function createToken() {
+  const token = crypto.randomBytes(8).toString("hex");
+  tokens[token] = now() + TOKEN_DURATION;
+  return { token, expiry: tokens[token] };
+}
+
+function validateToken(t) {
+  return Boolean(t && tokens[t] && now() <= tokens[t] && !usedTokens.has(t));
+}
+
+function useToken(t) { usedTokens.add(t); delete tokens[t]; }
+
+function createSession() {
   const id = crypto.randomBytes(16).toString("hex");
-  sessions[id] = Date.now() + DURATION;
-  return id;
+  sessions[id] = now() + SESSION_DURATION;
+  return { sessionId: id, expiry: sessions[id] };
 }
-function validSession(id) {
-  return id && sessions[id] && sessions[id] > Date.now();
+
+function validateSession(id) {
+  return Boolean(id && sessions[id] && now() <= sessions[id]);
 }
-function cookies(req) {
-  const c = req.headers.cookie || "";
-  return Object.fromEntries(
-    c.split(";").filter(Boolean).map(x => {
-      const [k, v] = x.trim().split("=");
-      return [k, decodeURIComponent(v)];
-    })
-  );
+
+function parseCookies(req) {
+  const raw = req.headers.cookie;
+  if (!raw) return {};
+  return Object.fromEntries(raw.split(";").map(s => s.trim().split("=")));
 }
-function send(res, code, type, body) {
-  res.writeHead(code, { "Content-Type": type });
-  res.end(body);
+
+function sendJSON(res, code, obj) {
+  res.writeHead(code, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(obj));
 }
+
+function serveStaticFile(res, filePath) {
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    return res.end("Not Found");
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  const types = { ".html":"text/html", ".js":"application/javascript", ".css":"text/css", ".png":"image/png", ".jpg":"image/jpeg" };
+  res.writeHead(200, { "Content-Type": types[ext] || "text/plain" });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+setInterval(() => {
+  const t = now();
+  for (const k in tokens) if (tokens[k] < t) delete tokens[k];
+  for (const k in sessions) if (sessions[k] < t) delete sessions[k];
+}, CLEANUP_INTERVAL);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const cookie = cookies(req);
+  const method = req.method;
+  const cookies = parseCookies(req);
 
-  // --- LOGIN PAGE ---
-  if (url.pathname === "/" && req.method === "GET") {
-    const html = `
-    <html><head><meta charset="utf-8"><title>Login</title></head>
-    <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6">
-      <form method="POST" action="/login" style="background:#fff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1)">
-        <h2>IPTV Access</h2>
-        <input name="password" type="password" placeholder="Access Code" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ccc;border-radius:6px">
-        <button type="submit" style="width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:6px">Login</button>
-      </form>
-    </body></html>`;
-    return send(res, 200, "text/html", html);
+  if (url.pathname === "/generate-token" && method === "GET") {
+    return sendJSON(res, 200, createToken());
   }
 
-  // --- LOGIN ACTION ---
-  if (url.pathname === "/login" && req.method === "POST") {
+  if (url.pathname === "/validate-token" && method === "POST") {
     let body = "";
-    req.on("data", c => (body += c));
+    req.on("data", d => body += d);
     req.on("end", () => {
-      const password = new URLSearchParams(body).get("password");
-      if (password === "iptv2025") {
-        const sid = newSession();
-        res.setHeader("Set-Cookie", `session=${sid}; HttpOnly; Path=/; Max-Age=${DURATION / 1000}`);
-        res.writeHead(302, { Location: "/iptv" });
-        res.end();
-      } else {
-        res.writeHead(302, { Location: "/?error=1" });
-        res.end();
+      const token = new URLSearchParams(body).get("token");
+      if (!validateToken(token)) {
+        res.writeHead(302, { Location: "/?error=invalid" });
+        return res.end();
       }
+      useToken(token);
+      const { sessionId } = createSession();
+      res.setHeader("Set-Cookie", `sessionId=${sessionId}; HttpOnly; Path=/`);
+      res.writeHead(302, { Location: "/iptv" });
+      res.end();
     });
     return;
   }
 
-  // --- IPTV PAGE ---
-  if (url.pathname === "/iptv") {
-    if (!validSession(cookie.session)) {
+  if (url.pathname === "/channels" && method === "GET") {
+    const sid = cookies.sessionId;
+    if (!validateSession(sid)) return sendJSON(res, 401, { success: false, error: "Unauthorized" });
+    if (!fs.existsSync(CHANNELS_FILE)) return sendJSON(res, 200, { success: true, channels: [] });
+    const channels = JSON.parse(fs.readFileSync(CHANNELS_FILE, "utf8"));
+    return sendJSON(res, 200, { success: true, channels });
+  }
+
+  if (url.pathname === "/" && method === "GET") {
+    return serveStaticFile(res, path.join(PUBLIC_DIR, "index.html"));
+  }
+
+  if (url.pathname === "/iptv" && method === "GET") {
+    if (!validateSession(cookies.sessionId)) {
       res.writeHead(302, { Location: "/" });
       return res.end();
     }
-    const file = path.join(PUBLIC, "index.html");
-    return send(res, 200, "text/html", fs.readFileSync(file));
+    return serveStaticFile(res, path.join(PUBLIC_DIR, "index.html"));
   }
 
-  // --- CHANNELS API ---
-  if (url.pathname === "/channels") {
-    if (!validSession(cookie.session)) {
-      return send(res, 401, "application/json", JSON.stringify({ success: false, error: "Unauthorized" }));
-    }
-    const json = JSON.parse(fs.readFileSync(CHANNELS, "utf8"));
-    const safe = json.map(({ name, logo, manifestUri, category }) => ({
-      name,
-      logo,
-      manifestUri,
-      category
-    }));
-    return send(res, 200, "application/json", JSON.stringify({ success: true, channels: safe }));
-  }
+  const filePath = path.join(PUBLIC_DIR, url.pathname);
+  if (fs.existsSync(filePath)) return serveStaticFile(res, filePath);
 
-  // --- STATIC FILES ---
-  const filePath = path.join(PUBLIC, url.pathname);
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath);
-    const types = {
-      ".html": "text/html",
-      ".css": "text/css",
-      ".js": "application/javascript",
-      ".png": "image/png",
-      ".jpg": "image/jpeg"
-    };
-    return send(res, 200, types[ext] || "application/octet-stream", fs.readFileSync(filePath));
-  }
-
-  send(res, 404, "text/plain", "Not found");
+  res.writeHead(404, { "Content-Type": "text/plain" });
+  res.end("Not Found");
 });
 
-server.listen(PORT, () => console.log(`✅ IPTV Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
