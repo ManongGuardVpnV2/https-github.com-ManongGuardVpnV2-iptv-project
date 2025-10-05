@@ -1666,35 +1666,39 @@ function debounce(fn, delay) {
 // ========================
 // Channel / Category Logic
 // ========================
+// script.js
 let channels = [];
-const CHANNEL_JSON_URL = "/channels"; // <-- fetch from your server
 
 async function loadChannels() {
   try {
-    const res = await fetch(CHANNEL_JSON_URL, { credentials: "include", cache: "no-store" });
+    const res = await fetch("/channels", { credentials: "include" });
     const data = await res.json();
 
     if (!data.success) {
-      console.error('❌ Unauthorized or failed to fetch channels');
+      console.error("❌ Failed to load channels: Unauthorized or error");
       return;
     }
 
     channels = data.channels;
 
-    renderCategoryFilters();
-    renderChannelRows();
+    // --- render your UI functions ---
+    renderCategoryFilters(); // your function
+    renderChannelRows();     // your function
 
-    // Auto-play last saved channel or first channel
-    const savedIndex = parseInt(localStorage.getItem('lastChannelIndex'));
+    // Auto-play last saved channel or first
+    const savedIndex = parseInt(localStorage.getItem("lastChannelIndex"));
     const initialIndex = (!isNaN(savedIndex) && channels[savedIndex]) ? savedIndex : 0;
     const card = document.querySelector(`.channel[data-index="${initialIndex}"]`);
-
-    flipChannel(card, initialIndex);
+    if (card) flipChannel(card, initialIndex); // your function
 
   } catch (err) {
-    console.error('❌ Failed to load channels:', err);
+    console.error("❌ Failed to load channels:", err);
   }
 }
+
+// Call on page load
+window.addEventListener("DOMContentLoaded", loadChannels);
+
 
 
 
